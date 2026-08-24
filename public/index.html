@@ -3,68 +3,69 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>manus-pi · agent workspace</title>
+  <title>manus-pi</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,700;1,300&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/style.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
       <div class="side-head">
-        <div class="brand"><span class="logo">⚡</span>manus<span class="accent">-pi</span></div>
-        <button id="new-task">＋ New task</button>
+        <div class="brand">manus-pi</div>
+        <button id="new-task">+ new task</button>
       </div>
-      <nav id="sessions" aria-label="Tasks"></nav>
+      <nav id="sessions"></nav>
       <div class="side-foot">
-        <div>pi-ai SDK → Manus LLM proxy</div>
-        <div class="muted">API key never leaves the server</div>
+        <div>pi agent sdk / manus llm proxy</div>
+        <div class="dim">the api key stays on the server</div>
       </div>
     </aside>
 
     <section class="main">
       <header>
-        <div class="controls">
-          <label>model
-            <select id="model"></select>
-          </label>
-          <label>thinking
-            <select id="thinking">
-              <option value="off">off</option>
-              <option value="minimal" selected>minimal</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
-          </label>
-          <span id="status" class="status" title="server connection"></span>
-        </div>
+        <label>model <select id="model"></select></label>
+        <label>thinking
+          <select id="thinking">
+            <option value="off">off</option>
+            <option value="minimal" selected>minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+        <span id="status" title="connection"></span>
       </header>
 
       <main id="feed">
         <div class="empty" id="empty">
-          <h1>What should we work on?</h1>
-          <p>Runs on the models behind Manus through the pi-ai SDK.</p>
+<pre>
+ __  __                  _ _
+|  \/  | ___  _ __ _ __ (_) | _____ _ __
+| |\/| |/ _ \| '__| '_ \| | |/ / _ \ '__|
+| |  | | (_) | |  | | | | |   <  __/ |
+|_|  |_|\___/|_|  |_| |_|_|_|\_\___|_|
+</pre>
+          <p>a coding agent in your browser. it can read files, run commands and edit code in the sandbox.</p>
           <div class="hints">
-            <button data-hint="Explain what you are and which model you are, in two sentences.">Who are you?</button>
-            <button data-hint="Write a Python one-liner that reverses every word in a string, then explain it.">Python puzzle</button>
-            <button data-hint="Draft a 5-step launch checklist for a small web app.">Launch checklist</button>
+            <button data-hint="List the files in the current directory and say what this project is.">look around</button>
+            <button data-hint="Read server.mjs and explain what it does in a few sentences.">read the server</button>
+            <button data-hint="Run df -h and free -h, then summarize disk and memory in one line each.">system check</button>
           </div>
         </div>
       </main>
 
       <footer>
         <div class="composer">
-          <textarea id="input" rows="1" placeholder="Describe a task…  (Enter to run · Shift+Enter for newline)"></textarea>
-          <div class="actions">
-            <span id="timer" class="timer"></span>
-            <button id="stop" title="Stop" hidden>■</button>
-            <button id="send" title="Run">➤</button>
-          </div>
+          <textarea id="input" rows="1" placeholder="give the agent a task... enter to run, shift+enter for a newline"></textarea>
+          <span id="timer"></span>
+          <button id="stop" hidden>stop</button>
+          <button id="send">run</button>
         </div>
       </footer>
     </section>
   </div>
-
   <script src="/app.js"></script>
 </body>
 </html>

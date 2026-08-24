@@ -1,100 +1,106 @@
-# ⚡ manus-pi
+# manus-pi
 
-An **agent-style workspace** for chatting with every model behind Manus's internal
-LLM gateway — GPT-5.x, Claude 4.x and Gemini 3.x — powered by the
-[`@mariozechner/pi-ai`](https://github.com/mariozechner/pi) SDK.
+A web interface for the [pi coding agent](https://github.com/badlogic/pi-mono).
+You type a task, a real agent runs it in the sandbox: it reads files, runs
+shell commands, edits code, and streams everything back as it happens. The
+models come from the Manus LLM gateway, so GPT-5.x, Claude 4.x and Gemini 3.x
+all work through the same session.
 
-No API key ever touches the browser: the tiny Node server holds it and streams
-responses (including model *thinking*) to a custom web UI over SSE.
+The look copies Omarchy's site: Tokyo Night colors, JetBrains Mono everywhere,
+flat panels with 1px borders.
+
+## How it works
 
 ```
-browser ──SSE──► server.mjs ──► manus_shim.js :8787 ──► api.manus.im LLM proxy
-                 (pi-ai SDK)    (streaming fixer)
+browser <--SSE--> server.mjs --AgentSession (pi sdk)--> manus shim :8787 --> api.manus.im
 ```
 
-## Features
+The server embeds pi through its SDK (`createAgentSession`). It forwards the
+agent's real events to the browser: text deltas, thinking deltas, tool calls
+with their arguments and output. Nothing in the UI is faked; every card you
+see maps to an event the agent emitted.
 
-- 🤖 **Agent workspace UI** — task cards, collapsible thinking panels,
-  per-turn metrics (tokens · cost · latency), working/completed status line
-- 🗂 **Sessions** — sidebar task history, auto-titled, persisted in `localStorage`
-- 🧠 **10 models**: GPT-5 nano/mini/5/5.5 · Claude Haiku/Sonnet/Opus 4.x · Gemini 3 Flash / 3.1 Pro
-- 🎛 **Thinking control** — off → high reasoning effort per request
-- 💸 **Live pricing** — $/1M shown in the picker, actual spend shown per reply
-- ⏹ **Stop button**, markdown + fenced code rendering, no injected system prompt
+pi handles the agent loop, tool execution and context management. The server
+only bridges events and holds the API key, which never reaches the browser.
 
-## Quick start
+## Running it
 
-Requirements: Node ≥ 18 and an API key accepted by `api.manus.im`.
+You need Node 18 or newer and an API key that works against `api.manus.im`.
 
 ```bash
 git clone https://github.com/EdgeAIG/manus-pi.git
 cd manus-pi
 OPENAI_API_KEY=sk-... node server.mjs
-# open http://127.0.0.1:8899
 ```
 
-The server expects the [manus shim](https://github.com/EdgeAIG/manus-shim) on
-`127.0.0.1:8787`, which works around two upstream quirks (no true streaming;
-HTTP 200 bodies that contain errors). Without it, `server.mjs` automatically
-falls back to single-shot non-streaming requests.
+Then open http://127.0.0.1:8899.
 
-### Start the shim
+The server talks to the Manus proxy through a small shim on port 8787 that
+fixes two quirks upstream (no true streaming, and error bodies sent with HTTP
+200 status). Start it like this:
 
 ```bash
 UPSTREAM_BASE=https://api.manus.im/api/llm-proxy PORT=8787 node manus_shim.js
 ```
 
-## Expose it with Cloudflare
+Without the shim, requests fail. With it, tools like bash run normally.
+
+## Putting it on the internet
+
+Quick way, no account needed:
 
 ```bash
 cloudflared tunnel --url http://localhost:8899 --no-autoupdate
 ```
 
-Copy the printed `https://<random>.trycloudflare.com` URL — that's your public
-UI. Quick tunnels are ephemeral; rerun the command to get a fresh URL.
-For a permanent hostname, use a named tunnel:
+This prints a trycloudflare.com URL. It works, but anyone with the link can
+spend your tokens, and the URL changes on every restart.
 
-```bash
-cloudflared tunnel login
-cloudflared tunnel create manus-pi
-cloudflared tunnel route dns manus-pi chat.yourdomain.com
-cloudflared tunnel --url http://localhost:8899 run manus-pi
-```
+For something permanent, use a named tunnel with Cloudflare Access in front
+of it.
 
 ## Configuration
 
-| Env var | Default | Purpose |
+All of these are environment variables:
+
+| Variable | Default | What it does |
 | --- | --- | --- |
 | `PORT` | `8899` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address |
-| `OPENAI_API_KEY` | — | **required**, key sent as `Authorization: Bearer` |
-| `SHIM_BASE` | `http://127.0.0.1:8787/v1` | pi-ai target base URL |
-| `UPSTREAM_BASE` | `https://api.manus.im/api/llm-proxy/v1` | fallback direct endpoint |
-| `PI_AI_PATH` | global install path | where to import pi-ai from |
+| `OPENAI_API_KEY` | none, required | Sent to the model gateway |
+| `SHIM_BASE` | `http://127.0.0.1:8787/v1` | Where pi sends completions |
+| `PI_AGENT_PATH` | global install path | Where to import pi from |
 
-Install pi-ai locally instead of using the global module if you prefer:
+If you would rather not use the global module, run `npm i @mariozechner/pi-coding-agent`
+and point `PI_AGENT_PATH` at `./node_modules/@mariozechner/pi-coding-agent/dist/index.js`.
 
-```bash
-npm i @mariozechner/pi-ai
-PI_AI_PATH=./node_modules/@mariozechner/pi-ai/dist/index.js node server.mjs
-```
+## HTTP surface
 
-## API
-
-| Route | Description |
+| Route | Purpose |
 | --- | --- |
-| `GET /api/models` | catalog: id, vendor, $/1M pricing, context window |
-| `POST /api/chat` | body `{ modelId, messages:[{role,content}], thinking? }` → SSE events `thinking` / `delta` / `done` / `error` |
-| `GET /healthz` | `{"ok":true}` |
+| `POST /api/session` | Create an agent session `{modelId, thinking}` |
+| `GET /api/events/:id` | SSE stream of agent events for that session |
+| `POST /api/prompt` | Send a task `{sessionId, text}` |
+| `POST /api/abort` | Stop the running turn |
+| `GET /api/models` | Model list with per-million pricing |
 
-The server adds **no system prompt** — your messages are passed through verbatim.
+Events worth knowing about: `delta` (text), `thinking`, `tool_start` and
+`tool_end` (name, args, output), `done` (token usage and cost), `error`.
+The UI renders each of these directly.
 
-## Security notes
+## Notes
 
-- The key lives only in the server process env; browsers talk to `/api/*` only.
-- `trycloudflare` URLs are public — anyone with the link can spend your tokens.
-  Use a named tunnel behind Cloudflare Access for real protection.
+- Sessions live in memory on the server and in your browser's localStorage.
+  Restarting the server clears them.
+- The agent has real tool access: bash, file read/write/edit. Run this inside
+  a sandbox you are comfortable with an agent touching.
+- No system prompt is injected anywhere. Your text goes to the model as you
+  typed it.
 
-## License
+## Credits
 
-MIT — see [LICENSE](LICENSE).
+Built on [@mariozechner/pi-coding-agent](https://www.npmjs.com/package/@mariozechner/pi-coding-agent)
+and [@mariozechner/pi-ai](https://www.npmjs.com/package/@mariozechner/pi-ai).
+Design borrowed from [Omarchy](https://omarchy.org).
+
+MIT license, see LICENSE.
