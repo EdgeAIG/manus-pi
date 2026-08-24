@@ -10,62 +10,7 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="side-head">
-        <div class="brand">manus-pi</div>
-        <button id="new-task">+ new task</button>
-      </div>
-      <nav id="sessions"></nav>
-      <div class="side-foot">
-        <div>pi agent sdk / manus llm proxy</div>
-        <div class="dim">the api key stays on the server</div>
-      </div>
-    </aside>
-
-    <section class="main">
-      <header>
-        <label>model <select id="model"></select></label>
-        <label>thinking
-          <select id="thinking">
-            <option value="off">off</option>
-            <option value="minimal" selected>minimal</option>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-          </select>
-        </label>
-        <span id="status" title="connection"></span>
-      </header>
-
-      <main id="feed">
-        <div class="empty" id="empty">
-<pre>
- __  __                  _ _
-|  \/  | ___  _ __ _ __ (_) | _____ _ __
-| |\/| |/ _ \| '__| '_ \| | |/ / _ \ '__|
-| |  | | (_) | |  | | | | |   <  __/ |
-|_|  |_|\___/|_|  |_| |_|_|_|\_\___|_|
-</pre>
-          <p>a coding agent in your browser. it can read files, run commands and edit code in the sandbox.</p>
-          <div class="hints">
-            <button data-hint="List the files in the current directory and say what this project is.">look around</button>
-            <button data-hint="Read server.mjs and explain what it does in a few sentences.">read the server</button>
-            <button data-hint="Run df -h and free -h, then summarize disk and memory in one line each.">system check</button>
-          </div>
-        </div>
-      </main>
-
-      <footer>
-        <div class="composer">
-          <textarea id="input" rows="1" placeholder="give the agent a task... enter to run, shift+enter for a newline"></textarea>
-          <span id="timer"></span>
-          <button id="stop" hidden>stop</button>
-          <button id="send">run</button>
-        </div>
-      </footer>
-    </section>
-  </div>
+  <div id="app"></div>
   <script src="/app.js"></script>
 </body>
 </html>

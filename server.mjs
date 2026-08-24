@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import http from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, appendFile, mkdir } from "node:fs/promises";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomUUID } from "node:crypto";
 
 const PI = process.env.PI_AGENT_PATH || "/home/ubuntu/.nvm/versions/node/v22.13.0/lib/node_modules/@mariozechner/pi-coding-agent/dist/index.js";
 const { AuthStorage, ModelRegistry, SessionManager, createAgentSession } = await import(PI);
@@ -13,7 +13,22 @@ const HOST = process.env.HOST || "127.0.0.1";
 const SHIM_BASE = process.env.SHIM_BASE || "http://127.0.0.1:8787/v1";
 const API_KEY = process.env.OPENAI_API_KEY;
 if (!API_KEY) { console.error("OPENAI_API_KEY is required"); process.exit(1); }
+
+const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "data");
+const SESSION_DIR = join(ROOT, "sessions");
+const LOG_DIR = join(ROOT, "logs");
+const REGISTRY = join(ROOT, "registry.json");
+for (const d of [ROOT, SESSION_DIR, LOG_DIR]) if (!existsSync(d)) await mkdir(d, { recursive: true });
 const PUB = join(fileURLToPath(new URL(".", import.meta.url)), "public");
+
+function loadRegistry() {
+  try { return JSON.parse(readFileSync(REGISTRY, "utf8")); } catch { return { items: [] }; }
+}
+function saveRegistry(r) {
+  writeFileSync(REGISTRY, JSON.stringify(r, null, 2));
+}
+const registry = loadRegistry();
+
 
 const MODELS = [
   { id: "gpt-5-nano", name: "GPT-5 nano", vendor: "OpenAI", input: 0.05, output: 0.4 },
@@ -49,70 +64,74 @@ const authStorage = AuthStorage.create();
 authStorage.setRuntimeApiKey("manus", API_KEY);
 const modelRegistry = ModelRegistry.inMemory(authStorage);
 
-const sessions = new Map();
+/* hub: per-session client sets + ui-event log replay */
+const hub = new Map(); /* sid -> {clients:Set<res>} */
+const live = new Map(); /* sid -> {session, modelId, thinking} */
 
-async function createPiSession(modelId, thinking) {
-  const def = modelDef(modelId);
-  const { session } = await createAgentSession({
-    model: def,
-    thinkingLevel: thinking && thinking !== "off" ? thinking : "off",
-    authStorage,
-    modelRegistry,
-    sessionManager: SessionManager.inMemory(),
-  });
-  const entry = { session, clients: new Set(), log: [], model: def };
-  session.subscribe((event) => {
-    const msg = serialize(event, entry);
-    if (!msg) return;
-    entry.log.push(msg);
-    if (entry.log.length > 2000) entry.log.splice(0, entry.log.length - 2000);
-    for (const res of entry.clients) sse(res, msg);
-  });
-  sessions.set(randomUUID(), entry);
-  return entry;
+function hubFor(sid) {
+  let h = hub.get(sid);
+  if (!h) { h = { clients: new Set() }; hub.set(sid, h); }
+  return h;
 }
 
-function serialize(event, entry) {
+async function emit(sid, msg) {
+  const line = JSON.stringify(msg);
+  await appendFile(join(LOG_DIR, sid + ".jsonl"), line + "\n").catch(() => {});
+  const h = hub.get(sid);
+  if (h) for (const res of h.clients) res.write(`data: ${line}\n\n`);
+}
+
+function serialize(event) {
   const t = event.type;
   if (t === "message_update") {
     const a = event.assistantMessageEvent || {};
-    if (a.type === "text_delta") return { ev: "delta", text: a.delta };
-    if (a.type === "thinking_delta") return { ev: "thinking", text: a.delta };
-    if (a.type === "toolcall_start") return { ev: "toolcall", id: a.id, name: a.toolName ?? "" };
+    if (a.type === "text_delta") return { type: "assistant.delta", text: a.delta };
+    if (a.type === "thinking_delta") return { type: "assistant.thinking.delta", text: a.delta };
     return null;
   }
-  if (t === "tool_execution_start") return { ev: "tool_start", id: event.toolCallId, name: event.toolName, args: event.args ?? null };
-  if (t === "tool_execution_update") return { ev: "tool_update", id: event.toolCallId, partial: summarizePartial(event.partialResult) };
-  if (t === "tool_execution_end") return { ev: "tool_end", id: event.toolCallId, ok: !event.isError, result: truncateOutput(event.result) };
-  if (t === "agent_start") return { ev: "agent_start" };
+  if (t === "tool_execution_start") return { type: "tool.start", toolCallId: event.toolCallId, toolName: event.toolName, args: event.args ?? null };
+  if (t === "tool_execution_end") {
+    let out = "";
+    const r = event.result;
+    if (r == null) out = "";
+    else if (typeof r === "string") out = r;
+    else { try { out = JSON.stringify(r); } catch { out = String(r); } }
+    if (out.length > 8000) out = out.slice(0, 8000) + "\n... truncated";
+    return { type: "tool.end", toolCallId: event.toolCallId, isError: !!event.isError, output: out };
+  }
+  if (t === "agent_start") return { type: "agent.start" };
   if (t === "agent_end") {
     const last = [...(event.messages || [])].reverse().find((m) => m.role === "assistant");
     const u = last?.usage ?? {};
-    return { ev: "done", usage: { input: u.input, output: u.output }, cost: u.cost?.total ?? null };
+    return { type: "turn.done", usage: { input: u.input, output: u.output }, cost: u.cost?.total ?? null };
   }
-  if (t === "auto_retry_start") return { ev: "note", text: `provider error, retry ${event.attempt ?? ""}` };
-  if (t === "error") return { ev: "error", message: String(event.error?.message || event.error || "error") };
+  if (t === "auto_retry_start") return { type: "notice", message: `provider error, retrying (${event.attempt ?? "?"})` };
+  if (t === "error") return { type: "error", message: String(event.error?.message || event.error || "error") };
   return null;
 }
 
-function summarizePartial(pr) {
-  if (pr == null) return null;
-  if (typeof pr === "string") return pr.slice(-400);
-  try {
-    const s = JSON.stringify(pr);
-    return s.length > 400 ? s.slice(0, 400) : s;
-  } catch { return null; }
-}
-function truncateOutput(r) {
-  let s;
-  if (r == null) s = "";
-  else if (typeof r === "string") s = r;
-  else { try { s = JSON.stringify(r); } catch { s = String(r); } }
-  return s.length > 8000 ? s.slice(0, 8000) + "\n… truncated" : s;
+function attach(sid, session, modelId, thinking) {
+  live.set(sid, { session, modelId, thinking });
+  session.subscribe((event) => {
+    const msg = serialize(event);
+    if (msg) emit(sid, msg).catch(() => {});
+  });
+  return live.get(sid);
 }
 
-function sse(res, obj) {
-  res.write(`data: ${JSON.stringify(obj)}\n\n`);
+async function resumeSession(rec) {
+  if (live.has(rec.id)) return live.get(rec.id);
+  const def = modelDef(rec.model || "gpt-5-mini");
+  const sm = SessionManager.open(rec.file, SESSION_DIR);
+  const { session } = await createAgentSession({
+    model: def,
+    thinkingLevel: rec.thinking && rec.thinking !== "off" ? rec.thinking : "off",
+    authStorage,
+    modelRegistry,
+    sessionManager: sm,
+  });
+  const entry = attach(rec.id, session, rec.model, rec.thinking);
+  return entry;
 }
 
 function sendJson(res, status, obj) {
@@ -127,53 +146,105 @@ async function readBody(req) {
   try { return JSON.parse(b || "{}"); } catch { return {}; }
 }
 
+const MIME = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png" };
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = url.pathname;
 
   try {
     if (p === "/api/models") return sendJson(res, 200, { models: MODELS });
-    if (p === "/healthz") return sendJson(res, 200, { ok: true, sessions: sessions.size });
+    if (p === "/healthz") return sendJson(res, 200, { ok: true, sessions: registry.items.length });
 
-    if (p === "/api/session" && req.method === "POST") {
+    if (p === "/api/sessions" && req.method === "GET") {
+      return sendJson(res, 200, { sessions: registry.items.map((r) => ({ ...r, live: live.has(r.id) })) });
+    }
+
+    if (p === "/api/sessions" && req.method === "POST") {
       const body = await readBody(req);
-      const entry = await createPiSession(body.modelId, body.thinking);
-      for (const [sid, e] of sessions) if (e === entry) return sendJson(res, 200, { sessionId: sid });
+      const def = modelDef(body.modelId);
+      const sm = SessionManager.create(process.cwd(), SESSION_DIR);
+      const { session } = await createAgentSession({
+        model: def,
+        thinkingLevel: body.thinking && body.thinking !== "off" ? body.thinking : "off",
+        authStorage,
+        modelRegistry,
+        sessionManager: sm,
+      });
+      const rec = {
+        id: session.sessionId,
+        file: session.sessionFile,
+        title: body.title || "new task",
+        model: def.id,
+        thinking: body.thinking || "minimal",
+        created: Date.now(),
+      };
+      registry.items.unshift(rec);
+      saveRegistry(registry);
+      attach(rec.id, session, rec.model, rec.thinking);
+      return sendJson(res, 200, { sessionId: rec.id });
+    }
+
+    if (p === "/api/sessions/rename" && req.method === "POST") {
+      const { id, title } = await readBody(req);
+      const rec = registry.items.find((r) => r.id === id);
+      if (!rec) return sendJson(res, 404, { error: "no such session" });
+      rec.title = String(title || rec.title).slice(0, 80);
+      saveRegistry(registry);
+      return sendJson(res, 200, { ok: true });
+    }
+
+    if (p.startsWith("/api/sessions/") && req.method === "DELETE") {
+      const id = p.slice("/api/sessions/".length);
+      registry.items = registry.items.filter((r) => r.id !== id);
+      saveRegistry(registry);
+      const e = live.get(id);
+      if (e) { await e.session.abort().catch(() => {}); await e.session.dispose?.(); live.delete(id); }
+      return sendJson(res, 200, { ok: true });
     }
 
     if (p.startsWith("/api/events/") && req.method === "GET") {
-      const entry = sessions.get(p.slice("/api/events/".length));
-      if (!entry) return sendJson(res, 404, { error: "no such session" });
+      const sid = p.slice("/api/events/".length);
+      if (!registry.items.some((r) => r.id === sid)) return sendJson(res, 404, { error: "no such session" });
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
         connection: "keep-alive",
         "x-accel-buffering": "no",
       });
-      for (const msg of entry.log) sse(res, msg);
-      entry.clients.add(res);
-      req.on("close", () => entry.clients.delete(res));
+      const logFile = join(LOG_DIR, sid + ".jsonl");
+      if (existsSync(logFile)) {
+        for (const line of readFileSync(logFile, "utf8").split("\n")) {
+          if (line.trim()) res.write(`data: ${line}\n\n`);
+        }
+      }
+      const h = hubFor(sid);
+      h.clients.add(res);
+      req.on("close", () => h.clients.delete(res));
       return;
     }
 
     if (p === "/api/prompt" && req.method === "POST") {
       const { sessionId, text } = await readBody(req);
-      const entry = sessions.get(sessionId);
-      if (!entry) return sendJson(res, 404, { error: "no such session" });
+      const rec = registry.items.find((r) => r.id === sessionId);
+      if (!rec) return sendJson(res, 404, { error: "no such session" });
+      let entry = live.get(sessionId);
+      if (!entry) {
+        try { entry = await resumeSession(rec); } catch (e) { return sendJson(res, 500, { error: "resume failed: " + e.message }); }
+      }
       if (entry.session.isStreaming) return sendJson(res, 409, { error: "session is busy" });
-      sseReplyAccepted(res);
-      entry.session.prompt(String(text || "")).catch((e) => {
-        const msg = { ev: "error", message: String(e.message || e) };
-        entry.log.push(msg);
-        for (const r of entry.clients) sse(r, msg);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+      entry.session.prompt(String(text || "")).catch((err) => {
+        emit(sessionId, { type: "error", message: String(err.message || err) }).catch(() => {});
       });
       return;
     }
 
     if (p === "/api/abort" && req.method === "POST") {
       const { sessionId } = await readBody(req);
-      const entry = sessions.get(sessionId);
-      if (!entry) return sendJson(res, 404, { error: "no such session" });
+      const entry = live.get(sessionId);
+      if (!entry) return sendJson(res, 404, { error: "not running" });
       await entry.session.abort();
       return sendJson(res, 200, { ok: true });
     }
@@ -183,7 +254,6 @@ const server = http.createServer(async (req, res) => {
     const file = join(PUB, path);
     if (!file.startsWith(PUB)) return sendJson(res, 403, { error: "forbidden" });
     const data = await readFile(file);
-    const MIME = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png" };
     res.writeHead(200, { "content-type": MIME[extname(file)] || "application/octet-stream" });
     res.end(data);
   } catch (e) {
@@ -191,10 +261,5 @@ const server = http.createServer(async (req, res) => {
     else res.end();
   }
 });
-
-function sseReplyAccepted(res) {
-  res.writeHead(200, { "content-type": "application/json" });
-  res.end(JSON.stringify({ ok: true }));
-}
 
 server.listen(PORT, HOST, () => console.log(`manus-pi listening on http://${HOST}:${PORT}`));

@@ -23,6 +23,19 @@ see maps to an event the agent emitted.
 pi handles the agent loop, tool execution and context management. The server
 only bridges events and holds the API key, which never reaches the browser.
 
+## Sessions survive restarts
+
+Transcripts are stored on disk under `data/sessions/` as pi JSONL files, one
+per session. The UI event stream is mirrored to `data/logs/<id>.jsonl`. When
+you reopen an old conversation after a server restart, the harness resumes it
+from the transcript with full context intact: delete `data/` to start fresh.
+
+The interface has two views. A sessions page lists everything stored locally,
+with model, date and live status. Chat opens in tabs across the top; each tab
+is one session, the + button starts another, and closing a tab keeps the
+session on disk. The color scheme is Catppuccin Mocha, one of Omarchy's
+bundled themes, applied through a flat set of `--pi-*` custom properties.
+
 ## Running it
 
 You need Node 18 or newer and an API key that works against `api.manus.im`.
