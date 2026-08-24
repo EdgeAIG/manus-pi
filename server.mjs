@@ -13,6 +13,7 @@ const HOST = process.env.HOST || "127.0.0.1";
 const SHIM_BASE = process.env.SHIM_BASE || "http://127.0.0.1:8787/v1";
 const API_KEY = process.env.OPENAI_API_KEY;
 if (!API_KEY) { console.error("OPENAI_API_KEY is required"); process.exit(1); }
+const PUB = join(fileURLToPath(new URL(".", import.meta.url)), "public");
 
 const MODELS = [
   { id: "gpt-5-nano", name: "GPT-5 nano", vendor: "OpenAI", input: 0.05, output: 0.4 },
