@@ -19,6 +19,17 @@ let tick = null;
 let models = [];
 const view = { line: null, thinking: null, answer: null, tools: new Map(), t0: 0 };
 
+/* ── icons ───────────────────────────────── */
+const ICONS = {
+  cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="10" y="10" width="4" height="4"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>',
+  spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.9 2.1L22 19l-2.1.9L19 22l-.9-2.1L16 19l2.1-.9z"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12h13M13 6l7 6-7 6"/></svg>',
+  halt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
+  list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h2M4 12h2M4 18h2M10 6h10M10 12h10M10 18h10"/></svg>',
+};
+
 /* ── helpers ─────────────────────────────── */
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -110,56 +121,22 @@ function renderTabbar() {
   }
   html += `
     <div class="tab-actions">
-      <button class="tab-btn new" id="btn-new" title="new session">+</button>
-      <button class="tab-btn" id="btn-sessions" title="all sessions">☰ sessions</button>
-      <div class="toolbar">
-        <label>model <select id="model"></select></label>
-        <label>thinking
-          <select id="thinking">
-            <option value="off">off</option>
-            <option value="minimal" selected>minimal</option>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-          </select>
-        </label>
-        <span class="statusdot ${models.length ? "ok" : ""}" id="statusdot"></span>
-      </div>
+      <button class="tab-btn new" id="btn-new" title="new session">${ICONS.plus}</button>
+      <button class="tab-btn" id="btn-sessions" title="sessions">${ICONS.list}</button>
+      <span class="statusdot ${models.length ? "ok" : ""}" id="statusdot"></span>
     </div>`;
   bar.innerHTML = html;
 
   bar.querySelectorAll(".tab").forEach((el) => {
     const id = el.dataset.id;
     el.addEventListener("click", (e) => {
-      if (e.target.classList.contains("t-close")) return;
+      if (e.target.closest(".t-close")) return;
       go(`#/s/${id}`);
     });
     el.querySelector(".t-close").addEventListener("click", () => closeTab(id));
   });
   document.getElementById("btn-new").addEventListener("click", newSession);
   document.getElementById("btn-sessions").addEventListener("click", () => go("#/sessions"));
-
-  const modelSel = document.getElementById("model");
-  if (!modelSel.options.length && models.length) {
-    let vendor = null, group = null;
-    for (const m of models) {
-      if (m.vendor !== vendor) {
-        vendor = m.vendor;
-        group = document.createElement("optgroup");
-        group.label = vendor;
-        modelSel.appendChild(group);
-      }
-      const opt = document.createElement("option");
-      opt.value = m.id;
-      opt.textContent = `${m.name} $${m.input}/$${m.output}`;
-      group.appendChild(opt);
-    }
-  }
-  if (models.length) modelSel.value = localStorage.getItem("manus-pi.model") || "gpt-5-mini";
-  modelSel.addEventListener("change", () => localStorage.setItem("manus-pi.model", modelSel.value));
-  const thinkSel = document.getElementById("thinking");
-  thinkSel.value = localStorage.getItem("manus-pi.thinking") || "minimal";
-  thinkSel.addEventListener("change", () => localStorage.setItem("manus-pi.thinking", thinkSel.value));
 
   const dot = document.getElementById("statusdot");
   dot.className = "statusdot" + (models.length ? " ok" : "");
@@ -267,8 +244,6 @@ function showChat(id) {
 | |  | | (_) | |  | | | | |   <  __/ |
 |_|  |_|\\___/|_|  |_| |_|_|_|\\_\\___|_|
 </pre>
-          <h1>a coding agent in your browser.</h1>
-          <p>it reads files, runs commands and edits code in the sandbox. everything streams as it happens.</p>
           <div class="hints">
             <button data-hint="List the files in the current directory and say what this project is.">look around</button>
             <button data-hint="Run df -h and free -h, then summarize disk and memory in one line each.">system check</button>
@@ -278,14 +253,23 @@ function showChat(id) {
       </div>
       <div class="composer-wrap">
         <div class="composer">
-          <textarea id="input" rows="1" placeholder="give the agent a task... enter to run, shift+enter for newline"></textarea>
-          <span class="timer" id="timer"></span>
-          <button class="stopbtn" id="stop">stop</button>
-          <button class="run" id="send">run</button>
+          <div class="input-shell">
+            <textarea id="input" rows="1" placeholder="task..."></textarea>
+            <div class="controls">
+              <div class="c-left" id="pickers"></div>
+              <div class="c-right">
+                <span class="timer" id="timer"></span>
+                <button id="stop" class="icon-btn stop" title="stop">${ICONS.halt}</button>
+                <button id="send" class="run" title="run">${ICONS.send}</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>`;
   renderTabbar();
+
+  buildPickers();
 
   const rec = sessions.find((s) => s.id === id);
   openTab(rec || { id, title: "loading..." });
@@ -318,6 +302,88 @@ function showChat(id) {
     b.addEventListener("click", () => run(b.dataset.hint))
   );
   input.focus();
+}
+
+/* ── custom pickers ──────────────────────── */
+function getModel() {
+  return localStorage.getItem("manus-pi.model") || "gpt-5-mini";
+}
+function getThinking() {
+  return localStorage.getItem("manus-pi.thinking") || "minimal";
+}
+function el(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+function closeMenus() {
+  document.querySelectorAll(".menu").forEach((m) => m.remove());
+}
+document.addEventListener("click", closeMenus);
+window.addEventListener("blur", closeMenus);
+
+function toggleMenu(anchor, build) {
+  const existing = anchor.parentElement.querySelector(":scope > .menu");
+  closeMenus();
+  if (existing) return;
+  const menu = el('<div class="menu"></div>');
+  build(menu);
+  anchor.parentElement.appendChild(menu);
+}
+function menuItem(label, sub, active) {
+  const d = el(`<div class="menu-item ${active ? "active" : ""}"><div><div class="mi-label">${esc(label)}</div>${sub ? `<div class="mi-sub">${esc(sub)}</div>` : ""}</div>${active ? '<span class="mi-check">✓</span>' : ""}</div>`);
+  return d;
+}
+
+function buildPickers() {
+  const host = document.getElementById("pickers");
+  if (!host || host.childElementCount) return;
+
+  const modelAnchor = el('<div class="anchor"></div>');
+  const cur = models.find((m) => m.id === getModel());
+  const modelChip = el(`<button class="chip" title="model">${ICONS.cpu}<span class="chip-label" id="model-label">${esc(cur ? cur.name : "models")}</span><span class="chev">${ICONS.chev}</span></button>`);
+  modelAnchor.appendChild(modelChip);
+
+  const thinkAnchor = el('<div class="anchor"></div>');
+  const thinkChip = el(`<button class="chip" title="thinking level">${ICONS.spark}<span class="chip-label" id="think-label">${esc(getThinking())}</span></button>`);
+  thinkAnchor.appendChild(thinkChip);
+
+  host.append(modelAnchor, thinkAnchor);
+
+  modelChip.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMenu(modelChip, (menu) => {
+      let vendor = null;
+      for (const m of models) {
+        if (m.vendor !== vendor) {
+          vendor = m.vendor;
+          menu.appendChild(el(`<div class="menu-head">${esc(vendor)}</div>`));
+        }
+        const item = menuItem(m.name, `$${m.input}/$${m.output} per 1M`, m.id === getModel());
+        item.addEventListener("click", () => {
+          localStorage.setItem("manus-pi.model", m.id);
+          document.getElementById("model-label").textContent = m.name;
+          closeMenus();
+        });
+        menu.appendChild(item);
+      }
+    });
+  });
+
+  thinkChip.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMenu(thinkChip, (menu) => {
+      for (const lvl of ["off", "minimal", "low", "medium", "high"]) {
+        const item = menuItem(lvl, null, lvl === getThinking());
+        item.addEventListener("click", () => {
+          localStorage.setItem("manus-pi.thinking", lvl);
+          document.getElementById("think-label").textContent = lvl;
+          closeMenus();
+        });
+        menu.appendChild(item);
+      }
+    });
+  });
 }
 
 /* ── event stream ────────────────────────── */
@@ -523,10 +589,7 @@ async function newSession() {
     const j = await api("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        modelId: localStorage.getItem("manus-pi.model") || "gpt-5-mini",
-        thinking: localStorage.getItem("manus-pi.thinking") || "minimal",
-      }),
+      body: JSON.stringify({ modelId: getModel(), thinking: getThinking() }),
     });
     await refreshSessions();
     go(`#/s/${j.sessionId}`);

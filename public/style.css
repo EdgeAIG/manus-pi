@@ -71,35 +71,72 @@ button {
 .tab .t-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pi-yellow); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
 
-.tab-actions { display: flex; align-items: center; margin-left: auto; gap: 10px; }
+.tab-actions { display: flex; align-items: center; margin-left: auto; gap: 4px; }
 .tab-btn {
   color: var(--pi-dim);
-  font-size: 15px;
-  padding: 4px 8px;
+  padding: 6px;
   border-radius: var(--pi-radius);
   transition: all var(--pi-transition);
 }
+.tab-btn svg { width: 16px; height: 16px; display: block; }
 .tab-btn:hover { color: var(--pi-text); background: var(--pi-surface-hover); }
-.tab-btn.new { color: var(--pi-green); font-weight: 700; }
+.tab-btn.new:hover { color: var(--pi-green); }
+.statusdot { width: 9px; height: 9px; border-radius: 50%; background: var(--pi-red); margin: 0 8px; transition: background .3s; }
+.statusdot.ok { background: var(--pi-green); }
 
-/* toolbar (model + thinking + status) lives on the right of the tabbar row */
-.toolbar { display: flex; align-items: center; gap: 12px; padding-left: 8px; }
-.toolbar label {
-  display: flex; align-items: center; gap: 6px;
-  color: var(--pi-dim); font-size: 10.5px; text-transform: uppercase; letter-spacing: 1px;
+/* custom pickers inside the input shell */
+.anchor { position: relative; }
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border-radius: .35em;
+  color: var(--pi-dim);
+  font-size: 12px;
+  transition: all var(--pi-transition);
 }
-.toolbar select {
-  background: var(--pi-surface-hover);
-  color: var(--pi-cyan);
+.chip:hover { color: var(--pi-cyan); background: var(--pi-surface-hover); }
+.chip svg { width: 14px; height: 14px; }
+.chip .chev svg { width: 12px; height: 12px; }
+.chip-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  min-width: 230px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--pi-surface);
   border: 1px solid var(--pi-border);
   border-radius: var(--pi-radius);
-  padding: 4px 8px;
-  font: inherit; font-size: 12px;
-  text-transform: none; letter-spacing: normal;
-  cursor: pointer;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .45);
+  padding: 4px;
+  z-index: 50;
 }
-.statusdot { width: 9px; height: 9px; border-radius: 50%; background: var(--pi-red); transition: background .3s; }
-.statusdot.ok { background: var(--pi-green); }
+.menu-head {
+  color: var(--pi-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  padding: 7px 10px 3px;
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: .3em;
+  cursor: pointer;
+  transition: background var(--pi-transition);
+}
+.menu-item:hover { background: var(--pi-surface-hover); }
+.menu-item.active .mi-label { color: var(--pi-accent); }
+.mi-label { font-size: 12.5px; }
+.mi-sub { font-size: 10.5px; color: var(--pi-dim); margin-top: 1px; }
+.mi-check { color: var(--pi-accent); }
 
 /* pages */
 .page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -228,39 +265,64 @@ button {
 
 /* composer */
 .composer-wrap { padding: 12px 20px 16px; border-top: 1px solid var(--pi-border); background: var(--pi-surface); }
-.composer { max-width: 800px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
-.composer textarea {
-  flex: 1;
-  resize: none;
-  background: var(--pi-surface-hover);
-  color: var(--pi-text);
+.composer { max-width: 800px; margin: 0 auto; }
+.input-shell {
+  display: flex;
+  flex-direction: column;
+  background: var(--pi-bg);
   border: 1px solid var(--pi-border);
-  border-radius: var(--pi-radius);
-  padding: 11px 13px;
+  border-radius: .6em;
+  transition: border-color var(--pi-transition);
+}
+.input-shell:focus-within { border-color: var(--pi-accent); }
+.input-shell textarea {
+  resize: none;
+  background: none;
+  color: var(--pi-text);
+  border: none;
+  padding: 12px 14px 8px;
   font: inherit;
   min-height: 44px;
   max-height: 160px;
 }
-.composer textarea:focus { outline: 1px solid var(--pi-accent); }
-.composer textarea:disabled { opacity: .55; }
-.composer .run {
-  background: var(--pi-accent);
-  color: var(--pi-bg);
-  border-radius: var(--pi-radius);
-  height: 44px;
-  padding: 0 20px;
-  font-weight: 700;
-  text-transform: uppercase;
-  font-size: 11px;
-  letter-spacing: 1px;
+.input-shell textarea:focus { outline: none; }
+.input-shell textarea:disabled { opacity: .55; }
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 8px 8px;
+}
+.c-left, .c-right { display: flex; align-items: center; gap: 4px; }
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: .35em;
+  color: var(--pi-dim);
   transition: all var(--pi-transition);
 }
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn:hover { color: var(--pi-text); background: var(--pi-surface-hover); }
+.icon-btn.stop { color: var(--pi-red); display: none; }
+.icon-btn.stop.on { display: grid; }
+.composer .run {
+  width: 36px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  background: var(--pi-accent);
+  color: var(--pi-bg);
+  border-radius: .35em;
+  transition: all var(--pi-transition);
+}
+.composer .run svg { width: 17px; height: 17px; }
 .composer .run:hover:not(:disabled) { background: var(--pi-cyan); }
 .composer .run:disabled { opacity: .5; cursor: default; }
-.composer .stopbtn { color: var(--pi-red); display: none; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; }
-.composer .stopbtn.on { display: block; }
-.composer .timer { color: var(--pi-dim); font-size: 11px; min-width: 42px; text-align: right; }
+.timer { color: var(--pi-dim); font-size: 11px; min-width: 42px; text-align: right; }
 
 @media (max-width: 720px) {
-  .toolbar label { display: none; }
+  .chip-label { max-width: 90px; }
 }
