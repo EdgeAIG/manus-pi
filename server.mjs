@@ -22,7 +22,11 @@ for (const d of [ROOT, SESSION_DIR, LOG_DIR]) if (!existsSync(d)) await mkdir(d,
 const PUB = join(fileURLToPath(new URL(".", import.meta.url)), "public");
 
 function loadRegistry() {
-  try { return JSON.parse(readFileSync(REGISTRY, "utf8")); } catch { return { items: [] }; }
+  try {
+    const r = JSON.parse(readFileSync(REGISTRY, "utf8"));
+    if (!Array.isArray(r.folders)) r.folders = [];
+    return r;
+  } catch { return { items: [], folders: [] }; }
 }
 function saveRegistry(r) {
   writeFileSync(REGISTRY, JSON.stringify(r, null, 2));
@@ -125,7 +129,7 @@ async function resumeSession(rec) {
   const sm = SessionManager.open(rec.file, SESSION_DIR);
   const { session } = await createAgentSession({
     model: def,
-    thinkingLevel: rec.thinking && rec.thinking !== "off" ? rec.thinking : "off",
+    thinkingLevel: rec.thinking === "minimal" ? "low" : (rec.thinking && rec.thinking !== "off" ? rec.thinking : "off"),
     authStorage,
     modelRegistry,
     sessionManager: sm,
@@ -157,7 +161,41 @@ const server = http.createServer(async (req, res) => {
     if (p === "/healthz") return sendJson(res, 200, { ok: true, sessions: registry.items.length });
 
     if (p === "/api/sessions" && req.method === "GET") {
-      return sendJson(res, 200, { sessions: registry.items.map((r) => ({ ...r, live: live.has(r.id) })) });
+      return sendJson(res, 200, {
+        sessions: registry.items.map((r) => ({ ...r, live: live.has(r.id) })),
+        folders: registry.folders,
+      });
+    }
+
+    if (p === "/api/folders" && req.method === "POST") {
+      const { name } = await readBody(req);
+      const clean = String(name || "").trim().slice(0, 40);
+      if (!clean) return sendJson(res, 400, { error: "name required" });
+      if (!registry.folders.includes(clean)) {
+        registry.folders.push(clean);
+        saveRegistry(registry);
+      }
+      return sendJson(res, 200, { folders: registry.folders });
+    }
+
+    if (p === "/api/folders/delete" && req.method === "POST") {
+      const { name } = await readBody(req);
+      registry.folders = registry.folders.filter((f) => f !== name);
+      for (const it of registry.items) if (it.folder === name) delete it.folder;
+      saveRegistry(registry);
+      return sendJson(res, 200, { folders: registry.folders });
+    }
+
+    if (p === "/api/sessions/folder" && req.method === "POST") {
+      const { id, folder } = await readBody(req);
+      const rec = registry.items.find((r) => r.id === id);
+      if (!rec) return sendJson(res, 404, { error: "no such session" });
+      const f = String(folder || "").trim().slice(0, 40);
+      if (f && !registry.folders.includes(f)) return sendJson(res, 400, { error: "unknown folder" });
+      if (f) rec.folder = f;
+      else delete rec.folder;
+      saveRegistry(registry);
+      return sendJson(res, 200, { ok: true });
     }
 
     if (p === "/api/sessions" && req.method === "POST") {
@@ -166,7 +204,7 @@ const server = http.createServer(async (req, res) => {
       const sm = SessionManager.create(process.cwd(), SESSION_DIR);
       const { session } = await createAgentSession({
         model: def,
-        thinkingLevel: body.thinking && body.thinking !== "off" ? body.thinking : "off",
+        thinkingLevel: body.thinking === "minimal" ? "low" : (body.thinking && body.thinking !== "off" ? body.thinking : "off"),
         authStorage,
         modelRegistry,
         sessionManager: sm,
@@ -176,9 +214,10 @@ const server = http.createServer(async (req, res) => {
         file: session.sessionFile,
         title: body.title || "new task",
         model: def.id,
-        thinking: body.thinking || "minimal",
+        thinking: body.thinking === "minimal" ? "low" : (body.thinking || "low"),
         created: Date.now(),
       };
+      if (body.folder && registry.folders.includes(body.folder)) rec.folder = body.folder;
       registry.items.unshift(rec);
       saveRegistry(registry);
       attach(rec.id, session, rec.model, rec.thinking);
@@ -235,6 +274,7 @@ const server = http.createServer(async (req, res) => {
       if (entry.session.isStreaming) return sendJson(res, 409, { error: "session is busy" });
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
+      await emit(sessionId, { type: "task.added", text: String(text || "") });
       entry.session.prompt(String(text || "")).catch((err) => {
         emit(sessionId, { type: "error", message: String(err.message || err) }).catch(() => {});
       });
